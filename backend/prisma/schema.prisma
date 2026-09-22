@@ -1,0 +1,161 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LandStatus {
+  DRAFT
+  PENDING_VERIFICATION
+  APPROVED           // Available on public buyer catalog
+  REJECTED
+  SOLD
+}
+
+enum AreaUnit {
+  ACRE
+  GUNTHA
+  HECTARE
+  SQ_FT
+  SQ_MTR
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  phoneNumber       String?            @unique
+  passwordHash      String
+  fullName          String
+  role              Role               @default(BUYER)
+  isVerified        Boolean            @default(false) // KYC status for seller
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  // Relationships
+  lands             Land[]             @relation("SellerLands")
+  kycDocuments      KycDocument[]
+  messagesSent      Message[]          @relation("SenderMessages")
+  messagesReceived  Message[]          @relation("ReceiverMessages")
+  siteVisits        SiteVisitRequest[] @relation("BuyerSiteVisits")
+}
+
+model KycDocument {
+  id                String             @id @default(uuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType      String             // "AADHAAR", "PAN"
+  documentUrl       String             // Cloudinary/S3 URL
+  status            VerificationStatus @default(PENDING)
+  rejectionReason   String?
+  verifiedAt        DateTime?
+  createdAt         DateTime           @default(now())
+}
+
+model Land {
+  id                String             @id @default(uuid())
+  sellerId          String
+  seller            User               @relation("SellerLands", fields: [sellerId], references: [id])
+  
+  // Location Details
+  village           String
+  taluka            String
+  district          String
+  state             String
+  surveyNumber      String
+  latitude          Float?
+  longitude         Float?
+  
+  // Land Characteristics
+  price             Decimal            @db.Decimal(15, 2)
+  totalArea         Float
+  areaUnit          AreaUnit
+  roadTouch         Boolean            @default(false)
+  waterAvailable    Boolean            @default(false)
+  electricity       Boolean            @default(false)
+  soilType          String?
+  currentCrops      String?
+  irrigationDetails String?
+  ownershipType     String             // "Single Owner", "Joint Venture", etc.
+  encumbranceStatus String             // "No Encumbrance", "Mortgaged", etc.
+  
+  // Status and Verification
+  status            LandStatus         @default(PENDING_VERIFICATION)
+  verifiedBadge     Boolean            @default(false)
+  rejectionReason   String?
+  
+  // Media
+  images            String[]           // Array of Cloudinary/S3 URLs
+  videoUrl          String?            // Video walkthrough
+  droneVideoUrl     String?            // Optional drone video
+  
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  // Relationships
+  documents         LandDocument[]
+  siteVisits        SiteVisitRequest[]
+  commissions       Commission[]
+}
+
+model LandDocument {
+  id                String             @id @default(uuid())
+  landId            String
+  land              Land               @relation(fields: [landId], references: [id], onDelete: Cascade)
+  documentType      String             // "7/12", "8A", "Sale Deed", "Mutation", "Property Card", "Map"
+  documentUrl       String
+  status            VerificationStatus @default(PENDING)
+  rejectionReason   String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model SiteVisitRequest {
+  id                String             @id @default(uuid())
+  landId            String
+  land              Land               @relation(fields: [landId], references: [id])
+  buyerId           String
+  buyer             User               @relation("BuyerSiteVisits", fields: [buyerId], references: [id])
+  preferredDate     DateTime
+  status            VerificationStatus @default(PENDING)
+  notes             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model Message {
+  id                String             @id @default(uuid())
+  senderId          String
+  sender            User               @relation("SenderMessages", fields: [senderId], references: [id])
+  receiverId        String
+  receiver          User               @relation("ReceiverMessages", fields: [receiverId], references: [id])
+  content           String
+  landContextId     String?            // Link to a specific land query
+  createdAt         DateTime           @default(now())
+}
+
+model Commission {
+  id                String             @id @default(uuid())
+  landId            String
+  land              Land               @relation(fields: [landId], references: [id])
+  dealAmount        Decimal            @db.Decimal(15, 2)
+  commissionRate    Float              // Percentage, e.g. 2.0
+  commissionEarned  Decimal            @db.Decimal(15, 2)
+  paymentStatus     String             // "PENDING", "PAID"
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
